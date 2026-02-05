@@ -40,7 +40,7 @@ class MFLILiveGUI(QWidget):
         self.streaming: bool = False
 
         # --- UI ---
-        self.host_edit = QLineEdit("localhost")
+        self.host_edit = QLineEdit("192.168.60.166")
         self.port_edit = QLineEdit("8004")
         self.refresh_btn = QPushButton("Refresh Devices")
         self.device_combo = QComboBox()
@@ -224,6 +224,7 @@ class MFLILiveGUI(QWidget):
         self.demod_path = f"/{device_id}/demods/0/sample"
 
         try:
+            self.session.connect_device(device_id)
             self.apply_minimal_settings(device_id)
             self.session.daq.subscribe(self.demod_path)
         except Exception as e:
