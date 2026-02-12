@@ -1,9 +1,10 @@
 """
-MFLI Live Monitor (Minimal) — FIXED v5
+MFLI Live Monitor (Minimal) — FIXED v6
 
 Fixes included:
-- Uses daq_server.get() which is the lowest-level API available
-- Works with all zhinst-toolkit versions
+- Uses daq_server.get() with correct flags for DATA nodes (not just settings)
+- The key issue was settingsonly=True was filtering out sample data!
+- Works with older zhinst-toolkit versions
 - Handles "device already in use" more gracefully
 - Properly disconnects on Stop/Close
 
@@ -11,7 +12,7 @@ Install:
   pip install zhinst-toolkit PyQt5
 
 Run:
-  python amp_fixed_v5.py
+  python amp_fixed_v6.py
 """
 
 import sys
@@ -34,7 +35,7 @@ def looks_like_in_use_error(msg: str) -> bool:
 class MFLILiveGUI(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MFLI Live Monitor (Minimal) - Fixed v5")
+        self.setWindowTitle("MFLI Live Monitor (Minimal) - Fixed v6")
         self.setMinimumWidth(560)
 
         # --- State ---
@@ -292,18 +293,22 @@ class MFLILiveGUI(QWidget):
             return
 
         try:
-            # Use daq_server.get() - the lowest level API
+            # THE KEY FIX: Use flat=False (or don't specify) to avoid settingsonly filter
+            # AND explicitly read data nodes, not settings nodes
+            # Sample nodes are DATA nodes, so we need to read them without the settings filter
+            
             # Build the node paths
             x_path = f"/{self.device_id}/demods/0/sample/x"
             y_path = f"/{self.device_id}/demods/0/sample/y"
             r_path = f"/{self.device_id}/demods/0/sample/r"
             theta_path = f"/{self.device_id}/demods/0/sample/theta"
             
-            # Read each value individually
-            x_result = self.session.daq_server.get(x_path, flat=True)
-            y_result = self.session.daq_server.get(y_path, flat=True)
-            r_result = self.session.daq_server.get(r_path, flat=True)
-            theta_result = self.session.daq_server.get(theta_path, flat=True)
+            # Read each value - DON'T use flat=True as it adds settingsonly filter!
+            # Use flat=False or no flag
+            x_result = self.session.daq_server.get(x_path, flat=False)
+            y_result = self.session.daq_server.get(y_path, flat=False)
+            r_result = self.session.daq_server.get(r_path, flat=False)
+            theta_result = self.session.daq_server.get(theta_path, flat=False)
             
             # Extract values - handle different possible formats
             def extract_value(result_dict, path):
@@ -312,12 +317,17 @@ class MFLILiveGUI(QWidget):
                 
                 data = result_dict[path]
                 
-                # Format 1: dict with 'value' key containing array
-                if isinstance(data, dict) and 'value' in data:
-                    val = data['value']
-                    if isinstance(val, (list, tuple)) and len(val) > 0:
-                        return float(val[0])
-                    return float(val)
+                # The non-flat format returns dict with 'timestamp' and 'value' keys
+                if isinstance(data, dict):
+                    if 'value' in data:
+                        val = data['value']
+                        if isinstance(val, (list, tuple)) and len(val) > 0:
+                            return float(val[0])
+                        return float(val)
+                    # Sometimes the value is directly in the dict
+                    for key in data:
+                        if key != 'timestamp':
+                            return float(data[key])
                 
                 # Format 2: direct array
                 if isinstance(data, (list, tuple)) and len(data) > 0:
