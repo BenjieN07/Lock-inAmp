@@ -319,40 +319,45 @@ class MFLILiveGUI(QWidget):
             r = 0.0
             phi = 0.0
             
+            def safe_extract(value):
+                """Safely extract a float from various formats"""
+                if isinstance(value, (list, tuple)) and len(value) > 0:
+                    return float(value[0])
+                return float(value)
+            
             if isinstance(sample, dict):
                 # Try direct keys first
                 if 'x' in sample:
-                    x_val = sample['x']
-                    x = float(x_val[0]) if isinstance(x_val, (list, tuple)) else float(x_val)
+                    x = safe_extract(sample['x'])
                 if 'y' in sample:
-                    y_val = sample['y']
-                    y = float(y_val[0]) if isinstance(y_val, (list, tuple)) else float(y_val)
+                    y = safe_extract(sample['y'])
                 if 'r' in sample:
-                    r_val = sample['r']
-                    r = float(r_val[0]) if isinstance(r_val, (list, tuple)) else float(r_val)
+                    r = safe_extract(sample['r'])
                 if 'theta' in sample:
-                    phi_val = sample['theta']
-                    phi = float(phi_val[0]) if isinstance(phi_val, (list, tuple)) else float(phi_val)
+                    phi = safe_extract(sample['theta'])
                 elif 'phi' in sample:
-                    phi_val = sample['phi']
-                    phi = float(phi_val[0]) if isinstance(phi_val, (list, tuple)) else float(phi_val)
+                    phi = safe_extract(sample['phi'])
                 
                 # If direct keys didn't work, try 'value' wrapper
-                if x == 0.0 and y == 0.0 and r == 0.0 and 'value' in sample:
+                if 'value' in sample:
                     val = sample['value']
                     if isinstance(val, dict):
                         if 'x' in val:
-                            x_val = val['x']
-                            x = float(x_val[0]) if isinstance(x_val, (list, tuple)) else float(x_val)
+                            x = safe_extract(val['x'])
                         if 'y' in val:
-                            y_val = val['y']
-                            y = float(y_val[0]) if isinstance(y_val, (list, tuple)) else float(y_val)
+                            y = safe_extract(val['y'])
                         if 'r' in val:
-                            r_val = val['r']
-                            r = float(r_val[0]) if isinstance(r_val, (list, tuple)) else float(r_val)
+                            r = safe_extract(val['r'])
                         if 'theta' in val:
-                            phi_val = val['theta']
-                            phi = float(phi_val[0]) if isinstance(phi_val, (list, tuple)) else float(phi_val)
+                            phi = safe_extract(val['theta'])
+                        elif 'phi' in val:
+                            phi = safe_extract(val['phi'])
+            
+            # If we got X and Y but not R and phi, calculate them
+            import math
+            if (x != 0.0 or y != 0.0) and r == 0.0:
+                r = math.sqrt(x*x + y*y)
+                phi = math.atan2(y, x)
 
         except Exception as e:
             self.set_status(f"Read error: {e}")
