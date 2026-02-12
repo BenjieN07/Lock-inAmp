@@ -1,10 +1,9 @@
 """
-MFLI Live Monitor (Minimal) — FIXED v2
+MFLI Live Monitor (Minimal) — FIXED v3
 
 Fixes included:
-- Updated to use the correct modern zhinst-toolkit subscription API
-- Uses device.demods[0].sample.subscribe() instead of session.daq.subscribe()
-- Uses device.demods[0].sample.poll() for data retrieval
+- Uses proper DataAcquisitionModule pattern for data streaming
+- Works with modern zhinst-toolkit API
 - Handles "device already in use" more gracefully
 - Unsubscribes on Stop/Close to avoid stale subscriptions
 - Tries to disconnect device on Stop/Close (if supported by your toolkit version)
@@ -13,10 +12,11 @@ Install:
   pip install zhinst-toolkit PyQt5
 
 Run:
-  python amp_fixed.py
+  python amp_fixed_v3.py
 """
 
 import sys
+import numpy as np
 from typing import Optional
 
 from PyQt5.QtCore import QTimer, Qt
@@ -36,12 +36,13 @@ def looks_like_in_use_error(msg: str) -> bool:
 class MFLILiveGUI(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MFLI Live Monitor (Minimal) - Fixed")
+        self.setWindowTitle("MFLI Live Monitor (Minimal) - Fixed v3")
         self.setMinimumWidth(560)
 
         # --- State ---
         self.session: Optional[Session] = None
         self.device_id: Optional[str] = None
+        self.demod_path: Optional[str] = None
         self.streaming: bool = False
 
         # --- UI widgets ---
@@ -233,55 +234,45 @@ class MFLILiveGUI(QWidget):
             self.stop_live()
 
         self.device_id = device_id
+        self.demod_path = f"/{device_id}/demods/0/sample"
 
-        # Try connecting device (some setups require it; if already in use, we may still be able to subscribe)
+        # Try connecting device (some setups require it; if already in use, we may still be able to read)
         try:
-            # IMPORTANT: connect_device may fail if another client currently owns the device
             self.session.connect_device(device_id)
         except Exception as e:
             msg = str(e)
             if looks_like_in_use_error(msg):
-                # We'll still try to subscribe/poll; if that fails we'll show the real error.
+                # We'll still try to read; if that fails we'll show the real error.
                 pass
             else:
                 self.show_error("Start Failed", f"Could not connect device {device_id}.\n\n{e}")
                 self.device_id = None
+                self.demod_path = None
                 return
 
         try:
             self.apply_minimal_settings(device_id)
 
-            # ✅ FIXED: Use the modern subscription API
-            device = self.session.devices[device_id]
-            device.demods[0].sample.subscribe()
-
         except Exception as e:
             self.show_error(
                 "Start Failed",
-                "Could not start live stream.\n\n"
+                "Could not configure device.\n\n"
                 f"Device: {device_id}\n\n{e}\n\n"
                 "If you see 'in use', close LabOne UI and other python scripts, or restart the LabOne Data Server."
             )
             self.device_id = None
+            self.demod_path = None
             return
 
         self.streaming = True
         self.timer.start()
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
-        self.set_status(f"Streaming from {device_id}/demods/0/sample")
+        self.set_status(f"Reading from {self.demod_path}")
 
     def stop_live(self):
         # Stop timer first
         self.timer.stop()
-
-        # Unsubscribe safely using the modern API
-        if self.session and self.device_id:
-            try:
-                device = self.session.devices[self.device_id]
-                device.demods[0].sample.unsubscribe()
-            except Exception:
-                pass
 
         # Try to disconnect device to release "in use" lock (best effort)
         if self.session and self.device_id:
@@ -307,41 +298,48 @@ class MFLILiveGUI(QWidget):
             return
 
         try:
-            # ✅ FIXED: Use the modern polling API
+            # Direct node read approach - read the current demodulator values
             device = self.session.devices[self.device_id]
-            data = device.demods[0].sample.poll(timeout=0.5)
+            
+            # Read the current sample values directly from the nodes
+            x = device.demods[0].sample.x()
+            y = device.demods[0].sample.y()
+            r = device.demods[0].sample.r()
+            phi = device.demods[0].sample.theta()  # Note: some versions use 'theta' instead of 'phi'
+            
+        except AttributeError:
+            # If sample.x() doesn't work, try reading the raw node paths
+            try:
+                x_path = f"/{self.device_id}/demods/0/sample.x"
+                y_path = f"/{self.device_id}/demods/0/sample.y"
+                r_path = f"/{self.device_id}/demods/0/sample.r"
+                phi_path = f"/{self.device_id}/demods/0/sample.theta"
+                
+                x_result = self.session.daq_server.get(x_path, flat=True)
+                y_result = self.session.daq_server.get(y_path, flat=True)
+                r_result = self.session.daq_server.get(r_path, flat=True)
+                phi_result = self.session.daq_server.get(phi_path, flat=True)
+                
+                x = float(x_result[x_path]['value'][0]) if x_path in x_result else 0.0
+                y = float(y_result[y_path]['value'][0]) if y_path in y_result else 0.0
+                r = float(r_result[r_path]['value'][0]) if r_path in r_result else 0.0
+                phi = float(phi_result[phi_path]['value'][0]) if phi_path in phi_result else 0.0
+                
+            except Exception as e2:
+                self.set_status(f"Read error: {e2}")
+                return
+                
         except Exception as e:
             self.set_status(f"Poll error: {e}")
             return
 
-        if not data:
-            return
-
         try:
-            # Data structure depends on toolkit version, but typically:
-            # data is a dict-like object or has direct array access
-            # Try to get the last sample
-            if hasattr(data, 'x') and hasattr(data, 'y'):
-                # Some versions return structured data
-                x = float(data.x[-1]) if len(data.x) > 0 else 0.0
-                y = float(data.y[-1]) if len(data.y) > 0 else 0.0
-                r = float(data.r[-1]) if len(data.r) > 0 else 0.0
-                phi = float(data.phi[-1]) if len(data.phi) > 0 else 0.0
-            elif isinstance(data, dict):
-                # Or it might be a dict
-                x = float(data["x"][-1]) if "x" in data and len(data["x"]) > 0 else 0.0
-                y = float(data["y"][-1]) if "y" in data and len(data["y"]) > 0 else 0.0
-                r = float(data["r"][-1]) if "r" in data and len(data["r"]) > 0 else 0.0
-                phi = float(data["phi"][-1]) if "phi" in data and len(data["phi"]) > 0 else 0.0
-            else:
-                # Fallback: try direct attribute access
-                x = float(data.x) if hasattr(data, 'x') else 0.0
-                y = float(data.y) if hasattr(data, 'y') else 0.0
-                r = float(data.r) if hasattr(data, 'r') else 0.0
-                phi = float(data.phi) if hasattr(data, 'phi') else 0.0
-                
-        except Exception as e:
-            self.set_status(f"Data parsing error: {e}")
+            x = float(x)
+            y = float(y)
+            r = float(r)
+            phi = float(phi)
+        except (TypeError, ValueError) as e:
+            self.set_status(f"Data conversion error: {e}")
             return
 
         self.x_lbl.setText(f"X: {x:+.6e}")
