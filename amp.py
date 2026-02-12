@@ -1,22 +1,20 @@
 """
-MFLI Live Monitor (Minimal) — FIXED v3
+MFLI Live Monitor (Minimal) — FIXED v4
 
 Fixes included:
-- Uses proper DataAcquisitionModule pattern for data streaming
-- Works with modern zhinst-toolkit API
+- Uses low-level session.get() API for maximum compatibility
+- Works with all zhinst-toolkit versions
 - Handles "device already in use" more gracefully
-- Unsubscribes on Stop/Close to avoid stale subscriptions
-- Tries to disconnect device on Stop/Close (if supported by your toolkit version)
+- Properly disconnects on Stop/Close
 
 Install:
   pip install zhinst-toolkit PyQt5
 
 Run:
-  python amp_fixed_v3.py
+  python amp_fixed_v4.py
 """
 
 import sys
-import numpy as np
 from typing import Optional
 
 from PyQt5.QtCore import QTimer, Qt
@@ -36,13 +34,12 @@ def looks_like_in_use_error(msg: str) -> bool:
 class MFLILiveGUI(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MFLI Live Monitor (Minimal) - Fixed v3")
+        self.setWindowTitle("MFLI Live Monitor (Minimal) - Fixed v4")
         self.setMinimumWidth(560)
 
         # --- State ---
         self.session: Optional[Session] = None
         self.device_id: Optional[str] = None
-        self.demod_path: Optional[str] = None
         self.streaming: bool = False
 
         # --- UI widgets ---
@@ -234,7 +231,6 @@ class MFLILiveGUI(QWidget):
             self.stop_live()
 
         self.device_id = device_id
-        self.demod_path = f"/{device_id}/demods/0/sample"
 
         # Try connecting device (some setups require it; if already in use, we may still be able to read)
         try:
@@ -247,7 +243,6 @@ class MFLILiveGUI(QWidget):
             else:
                 self.show_error("Start Failed", f"Could not connect device {device_id}.\n\n{e}")
                 self.device_id = None
-                self.demod_path = None
                 return
 
         try:
@@ -261,14 +256,13 @@ class MFLILiveGUI(QWidget):
                 "If you see 'in use', close LabOne UI and other python scripts, or restart the LabOne Data Server."
             )
             self.device_id = None
-            self.demod_path = None
             return
 
         self.streaming = True
         self.timer.start()
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
-        self.set_status(f"Reading from {self.demod_path}")
+        self.set_status(f"Reading from {device_id}/demods/0/sample")
 
     def stop_live(self):
         # Stop timer first
@@ -298,48 +292,62 @@ class MFLILiveGUI(QWidget):
             return
 
         try:
-            # Direct node read approach - read the current demodulator values
-            device = self.session.devices[self.device_id]
+            # Use the low-level get() API - this should work across all versions
+            # Read demod sample values using wildcards
+            path_base = f"/{self.device_id}/demods/0/sample"
             
-            # Read the current sample values directly from the nodes
-            x = device.demods[0].sample.x()
-            y = device.demods[0].sample.y()
-            r = device.demods[0].sample.r()
-            phi = device.demods[0].sample.theta()  # Note: some versions use 'theta' instead of 'phi'
+            # Get all sample fields at once
+            result = self.session.get(f"{path_base}.*", flat=True)
             
-        except AttributeError:
-            # If sample.x() doesn't work, try reading the raw node paths
-            try:
-                x_path = f"/{self.device_id}/demods/0/sample.x"
-                y_path = f"/{self.device_id}/demods/0/sample.y"
-                r_path = f"/{self.device_id}/demods/0/sample.r"
-                phi_path = f"/{self.device_id}/demods/0/sample.theta"
-                
-                x_result = self.session.daq_server.get(x_path, flat=True)
-                y_result = self.session.daq_server.get(y_path, flat=True)
-                r_result = self.session.daq_server.get(r_path, flat=True)
-                phi_result = self.session.daq_server.get(phi_path, flat=True)
-                
-                x = float(x_result[x_path]['value'][0]) if x_path in x_result else 0.0
-                y = float(y_result[y_path]['value'][0]) if y_path in y_result else 0.0
-                r = float(r_result[r_path]['value'][0]) if r_path in r_result else 0.0
-                phi = float(phi_result[phi_path]['value'][0]) if phi_path in phi_result else 0.0
-                
-            except Exception as e2:
-                self.set_status(f"Read error: {e2}")
-                return
-                
-        except Exception as e:
-            self.set_status(f"Poll error: {e}")
-            return
+            # Extract values from the result dictionary
+            x_key = f"/{self.device_id}/demods/0/sample/x"
+            y_key = f"/{self.device_id}/demods/0/sample/y"
+            r_key = f"/{self.device_id}/demods/0/sample/r"
+            theta_key = f"/{self.device_id}/demods/0/sample/theta"
+            
+            x = 0.0
+            y = 0.0
+            r = 0.0
+            phi = 0.0
+            
+            if x_key in result:
+                x_data = result[x_key]
+                if isinstance(x_data, dict) and 'value' in x_data:
+                    x = float(x_data['value'][0])
+                elif isinstance(x_data, (list, tuple)) and len(x_data) > 0:
+                    x = float(x_data[0])
+                else:
+                    x = float(x_data)
+                    
+            if y_key in result:
+                y_data = result[y_key]
+                if isinstance(y_data, dict) and 'value' in y_data:
+                    y = float(y_data['value'][0])
+                elif isinstance(y_data, (list, tuple)) and len(y_data) > 0:
+                    y = float(y_data[0])
+                else:
+                    y = float(y_data)
+                    
+            if r_key in result:
+                r_data = result[r_key]
+                if isinstance(r_data, dict) and 'value' in r_data:
+                    r = float(r_data['value'][0])
+                elif isinstance(r_data, (list, tuple)) and len(r_data) > 0:
+                    r = float(r_data[0])
+                else:
+                    r = float(r_data)
+                    
+            if theta_key in result:
+                phi_data = result[theta_key]
+                if isinstance(phi_data, dict) and 'value' in phi_data:
+                    phi = float(phi_data['value'][0])
+                elif isinstance(phi_data, (list, tuple)) and len(phi_data) > 0:
+                    phi = float(phi_data[0])
+                else:
+                    phi = float(phi_data)
 
-        try:
-            x = float(x)
-            y = float(y)
-            r = float(r)
-            phi = float(phi)
-        except (TypeError, ValueError) as e:
-            self.set_status(f"Data conversion error: {e}")
+        except Exception as e:
+            self.set_status(f"Read error: {e}")
             return
 
         self.x_lbl.setText(f"X: {x:+.6e}")
