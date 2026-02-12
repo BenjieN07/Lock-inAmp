@@ -1,10 +1,9 @@
 """
-MFLI Live Monitor (Minimal) — FIXED v6
+MFLI Live Monitor (Minimal) — FIXED v7
 
 Fixes included:
-- Uses daq_server.get() with correct flags for DATA nodes (not just settings)
-- The key issue was settingsonly=True was filtering out sample data!
-- Works with older zhinst-toolkit versions
+- Uses getSample() method which is the correct way to read demod samples
+- Works with older zhinst-toolkit and LabOne versions
 - Handles "device already in use" more gracefully
 - Properly disconnects on Stop/Close
 
@@ -12,7 +11,7 @@ Install:
   pip install zhinst-toolkit PyQt5
 
 Run:
-  python amp_fixed_v6.py
+  python amp_fixed_v7.py
 """
 
 import sys
@@ -35,7 +34,7 @@ def looks_like_in_use_error(msg: str) -> bool:
 class MFLILiveGUI(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MFLI Live Monitor (Minimal) - Fixed v6")
+        self.setWindowTitle("MFLI Live Monitor (Minimal) - Fixed v7")
         self.setMinimumWidth(560)
 
         # --- State ---
@@ -293,53 +292,67 @@ class MFLILiveGUI(QWidget):
             return
 
         try:
-            # THE KEY FIX: Use flat=False (or don't specify) to avoid settingsonly filter
-            # AND explicitly read data nodes, not settings nodes
-            # Sample nodes are DATA nodes, so we need to read them without the settings filter
+            # Use getSample() - the proper method for reading demod samples in older versions
+            # This returns a dict with the sample data
+            sample_path = f"/{self.device_id}/demods/0/sample"
             
-            # Build the node paths
-            x_path = f"/{self.device_id}/demods/0/sample/x"
-            y_path = f"/{self.device_id}/demods/0/sample/y"
-            r_path = f"/{self.device_id}/demods/0/sample/r"
-            theta_path = f"/{self.device_id}/demods/0/sample/theta"
+            # Try getSample() method
+            try:
+                sample = self.session.daq_server.getSample(sample_path)
+            except AttributeError:
+                # If getSample doesn't exist, try getAsEvent
+                try:
+                    sample = self.session.daq_server.getAsEvent(sample_path)
+                except AttributeError:
+                    # Last resort: try reading the actual sample node as a complete structure
+                    result = self.session.daq_server.get(sample_path)
+                    if result and sample_path in result:
+                        sample = result[sample_path]
+                    else:
+                        self.set_status("Could not read sample - unsupported API version")
+                        return
             
-            # Read each value - DON'T use flat=True as it adds settingsonly filter!
-            # Use flat=False or no flag
-            x_result = self.session.daq_server.get(x_path, flat=False)
-            y_result = self.session.daq_server.get(y_path, flat=False)
-            r_result = self.session.daq_server.get(r_path, flat=False)
-            theta_result = self.session.daq_server.get(theta_path, flat=False)
+            # Extract x, y, r, theta from the sample
+            # The sample structure varies by version, so try multiple approaches
+            x = 0.0
+            y = 0.0
+            r = 0.0
+            phi = 0.0
             
-            # Extract values - handle different possible formats
-            def extract_value(result_dict, path):
-                if not result_dict or path not in result_dict:
-                    return 0.0
+            if isinstance(sample, dict):
+                # Try direct keys first
+                if 'x' in sample:
+                    x_val = sample['x']
+                    x = float(x_val[0]) if isinstance(x_val, (list, tuple)) else float(x_val)
+                if 'y' in sample:
+                    y_val = sample['y']
+                    y = float(y_val[0]) if isinstance(y_val, (list, tuple)) else float(y_val)
+                if 'r' in sample:
+                    r_val = sample['r']
+                    r = float(r_val[0]) if isinstance(r_val, (list, tuple)) else float(r_val)
+                if 'theta' in sample:
+                    phi_val = sample['theta']
+                    phi = float(phi_val[0]) if isinstance(phi_val, (list, tuple)) else float(phi_val)
+                elif 'phi' in sample:
+                    phi_val = sample['phi']
+                    phi = float(phi_val[0]) if isinstance(phi_val, (list, tuple)) else float(phi_val)
                 
-                data = result_dict[path]
-                
-                # The non-flat format returns dict with 'timestamp' and 'value' keys
-                if isinstance(data, dict):
-                    if 'value' in data:
-                        val = data['value']
-                        if isinstance(val, (list, tuple)) and len(val) > 0:
-                            return float(val[0])
-                        return float(val)
-                    # Sometimes the value is directly in the dict
-                    for key in data:
-                        if key != 'timestamp':
-                            return float(data[key])
-                
-                # Format 2: direct array
-                if isinstance(data, (list, tuple)) and len(data) > 0:
-                    return float(data[0])
-                
-                # Format 3: direct value
-                return float(data)
-            
-            x = extract_value(x_result, x_path)
-            y = extract_value(y_result, y_path)
-            r = extract_value(r_result, r_path)
-            phi = extract_value(theta_result, theta_path)
+                # If direct keys didn't work, try 'value' wrapper
+                if x == 0.0 and y == 0.0 and r == 0.0 and 'value' in sample:
+                    val = sample['value']
+                    if isinstance(val, dict):
+                        if 'x' in val:
+                            x_val = val['x']
+                            x = float(x_val[0]) if isinstance(x_val, (list, tuple)) else float(x_val)
+                        if 'y' in val:
+                            y_val = val['y']
+                            y = float(y_val[0]) if isinstance(y_val, (list, tuple)) else float(y_val)
+                        if 'r' in val:
+                            r_val = val['r']
+                            r = float(r_val[0]) if isinstance(r_val, (list, tuple)) else float(r_val)
+                        if 'theta' in val:
+                            phi_val = val['theta']
+                            phi = float(phi_val[0]) if isinstance(phi_val, (list, tuple)) else float(phi_val)
 
         except Exception as e:
             self.set_status(f"Read error: {e}")
