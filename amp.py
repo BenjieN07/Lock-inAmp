@@ -1,8 +1,8 @@
 """
-MFLI Live Monitor (Minimal) — FIXED v4
+MFLI Live Monitor (Minimal) — FIXED v5
 
 Fixes included:
-- Uses low-level session.get() API for maximum compatibility
+- Uses daq_server.get() which is the lowest-level API available
 - Works with all zhinst-toolkit versions
 - Handles "device already in use" more gracefully
 - Properly disconnects on Stop/Close
@@ -11,7 +11,7 @@ Install:
   pip install zhinst-toolkit PyQt5
 
 Run:
-  python amp_fixed_v4.py
+  python amp_fixed_v5.py
 """
 
 import sys
@@ -34,7 +34,7 @@ def looks_like_in_use_error(msg: str) -> bool:
 class MFLILiveGUI(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MFLI Live Monitor (Minimal) - Fixed v4")
+        self.setWindowTitle("MFLI Live Monitor (Minimal) - Fixed v5")
         self.setMinimumWidth(560)
 
         # --- State ---
@@ -292,59 +292,44 @@ class MFLILiveGUI(QWidget):
             return
 
         try:
-            # Use the low-level get() API - this should work across all versions
-            # Read demod sample values using wildcards
-            path_base = f"/{self.device_id}/demods/0/sample"
+            # Use daq_server.get() - the lowest level API
+            # Build the node paths
+            x_path = f"/{self.device_id}/demods/0/sample/x"
+            y_path = f"/{self.device_id}/demods/0/sample/y"
+            r_path = f"/{self.device_id}/demods/0/sample/r"
+            theta_path = f"/{self.device_id}/demods/0/sample/theta"
             
-            # Get all sample fields at once
-            result = self.session.get(f"{path_base}.*", flat=True)
+            # Read each value individually
+            x_result = self.session.daq_server.get(x_path, flat=True)
+            y_result = self.session.daq_server.get(y_path, flat=True)
+            r_result = self.session.daq_server.get(r_path, flat=True)
+            theta_result = self.session.daq_server.get(theta_path, flat=True)
             
-            # Extract values from the result dictionary
-            x_key = f"/{self.device_id}/demods/0/sample/x"
-            y_key = f"/{self.device_id}/demods/0/sample/y"
-            r_key = f"/{self.device_id}/demods/0/sample/r"
-            theta_key = f"/{self.device_id}/demods/0/sample/theta"
+            # Extract values - handle different possible formats
+            def extract_value(result_dict, path):
+                if not result_dict or path not in result_dict:
+                    return 0.0
+                
+                data = result_dict[path]
+                
+                # Format 1: dict with 'value' key containing array
+                if isinstance(data, dict) and 'value' in data:
+                    val = data['value']
+                    if isinstance(val, (list, tuple)) and len(val) > 0:
+                        return float(val[0])
+                    return float(val)
+                
+                # Format 2: direct array
+                if isinstance(data, (list, tuple)) and len(data) > 0:
+                    return float(data[0])
+                
+                # Format 3: direct value
+                return float(data)
             
-            x = 0.0
-            y = 0.0
-            r = 0.0
-            phi = 0.0
-            
-            if x_key in result:
-                x_data = result[x_key]
-                if isinstance(x_data, dict) and 'value' in x_data:
-                    x = float(x_data['value'][0])
-                elif isinstance(x_data, (list, tuple)) and len(x_data) > 0:
-                    x = float(x_data[0])
-                else:
-                    x = float(x_data)
-                    
-            if y_key in result:
-                y_data = result[y_key]
-                if isinstance(y_data, dict) and 'value' in y_data:
-                    y = float(y_data['value'][0])
-                elif isinstance(y_data, (list, tuple)) and len(y_data) > 0:
-                    y = float(y_data[0])
-                else:
-                    y = float(y_data)
-                    
-            if r_key in result:
-                r_data = result[r_key]
-                if isinstance(r_data, dict) and 'value' in r_data:
-                    r = float(r_data['value'][0])
-                elif isinstance(r_data, (list, tuple)) and len(r_data) > 0:
-                    r = float(r_data[0])
-                else:
-                    r = float(r_data)
-                    
-            if theta_key in result:
-                phi_data = result[theta_key]
-                if isinstance(phi_data, dict) and 'value' in phi_data:
-                    phi = float(phi_data['value'][0])
-                elif isinstance(phi_data, (list, tuple)) and len(phi_data) > 0:
-                    phi = float(phi_data[0])
-                else:
-                    phi = float(phi_data)
+            x = extract_value(x_result, x_path)
+            y = extract_value(y_result, y_path)
+            r = extract_value(r_result, r_path)
+            phi = extract_value(theta_result, theta_path)
 
         except Exception as e:
             self.set_status(f"Read error: {e}")
