@@ -1,0 +1,458 @@
+from QCL_interface import *
+import ctypes
+from ctypes import *
+
+
+class Thorlabs(QFrame):
+    def __init__(self):
+        super().__init__()
+        self.setGeometry(700, 400, 350, 450)
+        self.show()
+        self.initUI()
+        self.setWindowTitle("Thorlabs")
+        self.enabled = False
+        self.angle_data = []
+        self.connected = False
+        self.scale = 409600/3
+        #os.chdir(r"C:\Program Files (x86)\Thorlabs\Kinesis")
+        self.lib = ctypes.CDLL(r"Thorlabs.MotionControl.IntegratedStepperMotors.dll")
+        # set up serial number variable
+        self.serialNumber = c_char_p(b"55311344")  # S/N number on the mount
+        self.deviceUnit = c_int()
+        self.ins_pos = float()  # Variable to chase the current pos
+        self.moveTimeout = 60.0
+        self.moved = True  # Global flag to identify whether stage is moved
+        self.homed = False  # Global flag to identify whether stage is homed
+        # Device state data
+        self.messageType = c_ushort()
+        self.messageID = c_ushort()
+        self.messageData = c_ulong()
+        self.hold = 0
+
+    def initUI(self):
+        # create main grid to organize layout
+        main_grid = QGridLayout()
+        main_grid.setSpacing(10)
+        self.setLayout(main_grid)
+
+        note = QLabel("Serial Number")
+        main_grid.addWidget(note, 0, 0)
+
+        self.serial = QLineEdit("55311344")
+        self.serial.setFixedWidth(100)
+        main_grid.addWidget(self.serial, 1, 0)
+
+        self.connection_btn = QPushButton("Connnect")
+        self.connection_btn.clicked.connect(self.connectInstrument)
+        main_grid.addWidget(self.connection_btn, 1, 1)
+
+        # create a label to show connection of the instrument with check or cross mark
+        self.connection_indicator = QLabel(u'\u274c ')  # cross mark by default because not connected yet
+        main_grid.addWidget(self.connection_indicator, 1, 2)
+
+        # position labels
+        curr_pos = QLabel('Current Position')  # above the slider
+        rel_pos = QLabel('Relative Position')  # below slider
+        main_grid.addWidget(curr_pos, 2, 0)
+        main_grid.addWidget(rel_pos, 4, 0, 1, 1, Qt.AlignBottom)
+
+        # enable/disable button
+        self.enable_btn = QPushButton('Enable/Disable')
+        self.enable_btn.setEnabled(False)
+        self.enable_btn.clicked.connect(self.toggleEnabled)
+        main_grid.addWidget(self.enable_btn, 2, 1, 1, 2, Qt.AlignCenter)
+
+        # absolute position slider
+        self.abs_pos_sld = QDoubleSlider(Qt.Horizontal)
+        self.abs_pos_sld.setTickPosition(QSlider.TicksBelow)
+        self.abs_pos_sld.setEnabled(False)
+        self.abs_pos_sld.sliderReleased.connect(self.setSliderPos)
+        self.abs_pos_sld.setTickInterval(500)
+        self.min_pos = QLabel('Min')  # bottom left of slider
+        self.max_pos = QLabel('Max')  # bottom right of slider
+        slider_vbox = QVBoxLayout()
+        slider_vbox.addWidget(self.abs_pos_sld)
+        min_max_hbox = QHBoxLayout()
+        min_max_hbox.addWidget(self.min_pos)
+        min_max_hbox.addStretch()
+        min_max_hbox.addWidget(self.max_pos)
+        slider_vbox.addLayout(min_max_hbox)
+        main_grid.addLayout(slider_vbox, 3, 0)
+
+        # absolute position spin box
+        self.abs_pos_sb = QDoubleSpinBox()  # right of slider
+        self.abs_pos_sb.setDecimals(4)
+        self.abs_pos_sb.setSingleStep(0.0001)
+        self.abs_pos_sb.setEnabled(False)
+        self.abs_pos_sb.editingFinished.connect(self.setSpinboxPos)
+        main_grid.addWidget(self.abs_pos_sb, 3, 1)
+
+        # led indicator
+        self.rotr_ind = QLedIndicator('orange')
+        main_grid.addWidget(self.rotr_ind, 3, 2)
+
+        # relative position buttons and spinbox
+        self.rel_left = QPushButton(u'\u25C0')  # left of relative position spinbox
+        self.rel_left.setFixedWidth(20)
+        self.rel_left.clicked.connect(self.moveRelLeft)
+        self.rel_right = QPushButton(u'\u25B6')  # right of relative position spinbox
+        self.rel_right.setFixedWidth(20)
+        self.rel_right.clicked.connect(self.moveRelRight)
+        self.rel_left.setEnabled(False)
+        self.rel_right.setEnabled(False)
+        self.rel_pos_sb = QDoubleSpinBox()  # below slider
+        self.rel_pos_sb.setDecimals(4)
+        self.rel_pos_sb.setSingleStep(0.0001)
+        self.rel_pos_sb.setAlignment(Qt.AlignHCenter)
+        rel_pos_hbox = QHBoxLayout()
+        rel_pos_hbox.addWidget(self.rel_left)
+        rel_pos_hbox.addWidget(self.rel_pos_sb)
+        rel_pos_hbox.addWidget(self.rel_right)
+        main_grid.addLayout(rel_pos_hbox, 5, 0, 2, 1)
+
+        # led indicator and current state labels
+        curr_state_head = QLabel('Current State')
+        self.curr_state = QLineEdit('')
+        self.curr_state.setAlignment(Qt.AlignHCenter)
+        self.curr_state.setReadOnly(True)
+        main_grid.addWidget(curr_state_head, 5, 1, 1, 2, Qt.AlignBottom | Qt.AlignHCenter)
+        main_grid.addWidget(self.curr_state, 6, 1, 1, 2, Qt.AlignTop | Qt.AlignHCenter)
+
+    def connectInstrument(self):
+        # if a selection is chosen that is not just the default prompt
+        if (self.serial.text() != ""):
+            # get the chopper name and connect the chopper
+            serial_number = self.serial.text()
+            if len(serial_number) != 8:
+                QMessageBox.warning(self, "Serial Number", "Serial number is a 8 digit number!")
+                return  # serial number is a 8 digit number
+
+            self.serialNumber = c_char_p(serial_number.encode())
+            # Build device list
+            self.lib.TLI_BuildDeviceList()
+
+            # constants for the K10CR1
+            stepsPerRev = 200
+            gearBoxRatio = 120
+            pitch = 360.0
+
+            # set up device
+            self.lib.ISC_Open(self.serialNumber)
+            self.lib.ISC_StartPolling(self.serialNumber, c_int(200))
+
+            #time.sleep(3)
+
+            self.lib.ISC_EnableChannel(self.serialNumber)
+            self.lib.ISC_ClearMessageQueue(self.serialNumber)
+
+            self.lib.ISC_SetMotorParamsExt(self.serialNumber, c_double(stepsPerRev), c_double(gearBoxRatio), c_double(pitch))
+            self.lib.ISC_LoadSettings(self.serialNumber)
+
+            left_lim = 0.0
+            right_lim = 360.0
+
+            self.abs_pos_sb.setRange(left_lim, right_lim)
+            self.rel_pos_sb.setRange(left_lim, right_lim)
+            self.abs_pos_sld.setRange(left_lim, right_lim)
+
+            self.min_pos.setText(str(left_lim))
+            self.max_pos.setText(str(right_lim))
+
+            self.updatePosDisplay()
+            self.enabled = True
+
+            # change connection indicator to a check mark from a cross mark
+            self.connection_indicator.setText(u'\u2705')
+            self.connected = True
+
+            # turn led indicator on and set appropriate color based on state
+            if not self.moved:
+                ctrl_state = "MOVING"
+            else:
+                ctrl_state = "READY"
+            self.ready = (ctrl_state == "READY")
+
+            if (self.ready and self.enabled == True):
+                self.rotr_ind.changeColor('green')
+                # enable position spinbox, slider, and buttons
+                self.abs_pos_sb.setEnabled(True)
+                self.abs_pos_sld.setEnabled(True)
+                self.rel_left.setEnabled(True)
+                self.rel_right.setEnabled(True)
+                self.enable_btn.setText('Disable')
+            else:
+                self.enable_btn.setText('Enable')
+
+            self.rotr_ind.setChecked(True)
+            self.enable_btn.setEnabled(True)
+
+            # update controller state every second (1000 ms)
+            self.timer = QTimer()
+            self.timer.timeout.connect(self.updateState)
+            self.timer.start(1000)
+
+    def moveRelLeft(self):
+        val = self.rel_pos_sb.value() * (-1)
+        realUnit = c_double(val)
+        self.lib.ISC_GetDeviceUnitFromRealValue(self.serialNumber, realUnit, byref(self.deviceUnit), 0)
+        self.lib.ISC_MoveRelativeDistance(self.serialNumber, self.deviceUnit)
+
+        # Self check: whether the moving command is finished
+        self.moved = False
+
+    def moveRelRight(self):
+        val = self.rel_pos_sb.value()
+        realUnit = c_double(val)
+        self.lib.ISC_GetDeviceUnitFromRealValue(self.serialNumber, realUnit, byref(self.deviceUnit), 0)
+        self.lib.ISC_MoveRelativeDistance(self.serialNumber, self.deviceUnit)
+
+        # Self check: whether the moving command is finished
+        self.moved = False
+
+    def setSpinboxPos(self):
+        val = self.abs_pos_sb.value()
+        self.abs_pos_sld.setValue(val)
+        self.angle_data.append(val)
+        realUnit = c_double(val)
+        self.lib.ISC_GetDeviceUnitFromRealValue(self.serialNumber, realUnit, byref(self.deviceUnit), 0)
+        self.lib.ISC_MoveToPosition(self.serialNumber, self.deviceUnit)
+
+        # Self check: whether the moving command is finished
+        self.moved = False
+
+    def setSliderPos(self):
+        val = self.abs_pos_sld.value()
+        self.abs_pos_sb.setValue(val)
+        self.angle_data.append(val)
+        realUnit = c_double(val)
+        self.lib.ISC_GetDeviceUnitFromRealValue(self.serialNumber, realUnit, byref(self.deviceUnit), 0)
+        self.lib.ISC_MoveToPosition(self.serialNumber, self.deviceUnit)
+
+        # Self check: whether the moving command is finished
+        self.moved = False
+
+    def updateState(self):
+        if self.moved:
+            ctrl_state = "READY"
+        else:
+            ctrl_state = "MOVING"
+            self.hold += 1
+
+        self.curr_state.setText(ctrl_state)
+        self.ready = (ctrl_state == 'READY')
+
+        if (self.ready and self.enabled == True):
+            # enable position spinbox, slider, and buttons
+            self.abs_pos_sb.setEnabled(True)
+            self.abs_pos_sld.setEnabled(True)
+            self.rel_left.setEnabled(True)
+            self.rel_right.setEnabled(True)
+        else:
+            # disable position spinbox, slider, and buttons
+            self.abs_pos_sb.setEnabled(False)
+            self.abs_pos_sld.setEnabled(False)
+            self.rel_left.setEnabled(False)
+            self.rel_right.setEnabled(False)
+
+        while self.moved == False and self.hold == 2:
+            self.lib.ISC_GetNextMessage(self.serialNumber, byref(self.messageType), byref(self.messageID), byref(self.messageData))
+            if (self.messageID.value == 1 and self.messageType.value == 2):
+                self.moved = True
+                self.hold = 0
+
+    def updatePosDisplay(self):
+        abs_pos = self.lib.ISC_GetPosition(self.serialNumber) / self.scale
+        self.abs_pos_sb.setValue(abs_pos)
+        self.abs_pos_sld.setValue(abs_pos)
+
+    def toggleEnabled(self):
+        if (self.enabled == True):  # disable, then change text to enable
+            self.lib.ISC_DisableChannel()
+            self.enable_btn.setText('Enable')
+            self.rotr_ind.changeColor('orange')
+            self.enabled = False
+        else:  # enable, then change text to disable
+            self.lib.ISC_EnableChannel()
+            self.enable_btn.setText('Disable')
+            self.rotr_ind.changeColor('green')
+            self.enabled = True
+
+class QDoubleSlider(QSlider):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.decimals = 4
+        self._max_int = 10 ** self.decimals
+
+        super().setMinimum(0)
+        super().setMaximum(self._max_int)
+
+        self._min_value = 0.0
+        self._max_value = 1.0
+
+    @property
+    def _value_range(self):
+        return self._max_value - self._min_value
+
+    def value(self):
+        return float(super().value()) / self._max_int * self._value_range + self._min_value
+
+    def setValue(self, value):
+        super().setValue(int((value - self._min_value) / self._value_range * self._max_int))
+
+    def setMinimum(self, value):
+        if value > self._max_value:
+            raise ValueError("Minimum limit cannot be higher than maximum")
+
+        self._min_value = value
+        self.setValue(self.value())
+
+    def setMaximum(self, value):
+        if value < self._min_value:
+            raise ValueError("Minimum limit cannot be higher than maximum")
+
+        self._max_value = value
+        self.setValue(self.value())
+
+    def setRange(self, minval, maxval):
+        self.setMinimum(minval)
+        self.setMaximum(maxval)
+
+    def minimum(self):
+        return self._min_value
+
+    def maximum(self):
+        return self._max_value
+
+    def setDecimals(self, value):
+        if type(value != int):
+            raise ValueError('Number of decimals must be an int')
+        else:
+            self.decimals = value
+
+
+# from https://github.com/nlamprian/pyqt5-led-indicator-widget/blob/master/LedIndicatorWidget.py
+class QLedIndicator(QAbstractButton):
+    scaledSize = 1000.0
+
+    def __init__(self, color='green', parent=None):  # added a color option to use red or orange
+        QAbstractButton.__init__(self, parent)
+
+        self.setMinimumSize(24, 24)
+        self.setCheckable(True)
+
+        # prevent user from changing indicator color by clicking
+        self.setEnabled(False)
+
+        if color.lower() == 'red':
+            self.on_color_1 = QColor(255, 0, 0)
+            self.on_color_2 = QColor(192, 0, 0)
+            self.off_color_1 = QColor(28, 0, 0)
+            self.off_color_2 = QColor(128, 0, 0)
+        elif color.lower() == 'orange':
+            self.on_color_1 = QColor(255, 175, 0)
+            self.on_color_2 = QColor(170, 115, 0)
+            self.off_color_1 = QColor(90, 60, 0)
+            self.off_color_2 = QColor(150, 100, 0)
+        else:  # default to green if user does not give valid option
+            self.on_color_1 = QColor(0, 255, 0)
+            self.on_color_2 = QColor(0, 192, 0)
+            self.off_color_1 = QColor(0, 28, 0)
+            self.off_color_2 = QColor(0, 128, 0)
+
+    def changeColor(self, color):
+        '''change color by inputting a string only for red, orange, and green'''
+        if color.lower() == 'red':
+            self.on_color_1 = QColor(255, 0, 0)
+            self.on_color_2 = QColor(192, 0, 0)
+            self.off_color_1 = QColor(28, 0, 0)
+            self.off_color_2 = QColor(128, 0, 0)
+        elif color.lower() == 'orange':
+            self.on_color_1 = QColor(255, 175, 0)
+            self.on_color_2 = QColor(170, 115, 0)
+            self.off_color_1 = QColor(90, 60, 0)
+            self.off_color_2 = QColor(150, 100, 0)
+        elif color.lower() == 'green':
+            self.on_color_1 = QColor(0, 255, 0)
+            self.on_color_2 = QColor(0, 192, 0)
+            self.off_color_1 = QColor(0, 28, 0)
+            self.off_color_2 = QColor(0, 128, 0)
+
+        self.update()
+
+    def resizeEvent(self, QResizeEvent):
+        self.update()
+
+    def paintEvent(self, QPaintEvent):
+        realSize = min(self.width(), self.height())
+
+        painter = QPainter(self)
+        pen = QPen(Qt.black)
+        pen.setWidth(1)
+
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.translate(self.width() / 2, self.height() / 2)
+        painter.scale(realSize / self.scaledSize, realSize / self.scaledSize)
+
+        gradient = QRadialGradient(QPointF(-500, -500), 1500, QPointF(-500, -500))
+        gradient.setColorAt(0, QColor(224, 224, 224))
+        gradient.setColorAt(1, QColor(28, 28, 28))
+        painter.setPen(pen)
+        painter.setBrush(QBrush(gradient))
+        painter.drawEllipse(QPointF(0, 0), 500, 500)
+
+        gradient = QRadialGradient(QPointF(500, 500), 1500, QPointF(500, 500))
+        gradient.setColorAt(0, QColor(224, 224, 224))
+        gradient.setColorAt(1, QColor(28, 28, 28))
+        painter.setPen(pen)
+        painter.setBrush(QBrush(gradient))
+        painter.drawEllipse(QPointF(0, 0), 450, 450)
+
+        painter.setPen(pen)
+        if self.isChecked():
+            gradient = QRadialGradient(QPointF(-500, -500), 1500, QPointF(-500, -500))
+            gradient.setColorAt(0, self.on_color_1)
+            gradient.setColorAt(1, self.on_color_2)
+        else:
+            gradient = QRadialGradient(QPointF(500, 500), 1500, QPointF(500, 500))
+            gradient.setColorAt(0, self.off_color_1)
+            gradient.setColorAt(1, self.off_color_2)
+
+        painter.setBrush(gradient)
+        painter.drawEllipse(QPointF(0, 0), 400, 400)
+
+    @pyqtProperty(QColor)
+    def onColor1(self):
+        return self.on_color_1
+
+    @onColor1.setter
+    def onColor1(self, color):
+        self.on_color_1 = color
+
+    @pyqtProperty(QColor)
+    def onColor2(self):
+        return self.on_color_2
+
+    @onColor2.setter
+    def onColor2(self, color):
+        self.on_color_2 = color
+
+    @pyqtProperty(QColor)
+    def offColor1(self):
+        return self.off_color_1
+
+    @offColor1.setter
+    def offColor1(self, color):
+        self.off_color_1 = color
+
+    @pyqtProperty(QColor)
+    def offColor2(self):
+        return self.off_color_2
+
+    @offColor2.setter
+    def offColor2(self, color):
+        self.off_color_2 = color
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = Thorlabs()
+    sys.exit(app.exec_())

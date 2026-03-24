@@ -1,0 +1,9 @@
+Notes for installing Mercury ITC on new computer:
+(official website for trouble shooting: http://mymercurysupport.com/)
+1. Connect Mercury to the computer with USB-B
+2. Update OI_Mercury_USB_Driver to the respective port (change Windows setting if the update process is rejected due to invalid electronic signature)
+3. If the COM port number is large, change it to a small one (1-4 recommended)
+4. Make sure the setting on Mercury is changed to "USB" "SCPI" "Baud rate = 11520"
+5. Use tera term or the official connection checking software by Mercury to check connection
+6. If Mercury stops communicating after rebooting the computer, reboot Mercury as well
+7. If it still doesn't work, copy the usbser.sys file in OI_Mercury_USB_Driver and replace the file with same name in C:/Windows/System32/drivers

@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>566</width>
+    <height>688</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>MercuryiTC Monitor</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QGridLayout" name="centralwidget_2">
+    <property name="leftMargin">
+     <number>0</number>
+    </property>
+    <property name="topMargin">
+     <number>20</number>
+    </property>
+    <property name="rightMargin">
+     <number>0</number>
+    </property>
+    <property name="bottomMargin">
+     <number>0</number>
+    </property>
+    <item row="4" column="0">
+     <widget class="QTabWidget" name="tabWidget"/>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>566</width>
+     <height>24</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menu_MercuryiTC">
+    <property name="title">
+     <string>MercuryiTC</string>
+    </property>
+    <addaction name="modulesAction"/>
+    <addaction name="readingsAction"/>
+    <addaction name="updateAddressAction"/>
+    <addaction name="PIDAction"/>
+    <addaction name="separator"/>
+    <addaction name="exitAction"/>
+   </widget>
+   <widget class="QMenu" name="menu_File">
+    <property name="title">
+     <string>File</string>
+    </property>
+    <widget class="QMenu" name="menuUpdate_Period">
+     <property name="title">
+      <string>Update Logging Period</string>
+     </property>
+     <addaction name="actionUpdatePeriodVeryOften"/>
+     <addaction name="actionUpdatePeriodOften"/>
+     <addaction name="actionUpdatePeriodNormally"/>
+     <addaction name="actionUpdatePeriodSlowly"/>
+    </widget>
+    <addaction name="menuUpdate_Period"/>
+    <addaction name="showLogAction"/>
+   </widget>
+   <widget class="QMenu" name="menu_Edit">
+    <property name="title">
+     <string>Edit</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menuWindow">
+    <property name="title">
+     <string>Window</string>
+    </property>
+    <addaction name="actionMinimize"/>
+    <addaction name="actionZoom"/>
+   </widget>
+   <widget class="QMenu" name="menuView">
+    <property name="title">
+     <string>View</string>
+    </property>
+    <widget class="QMenu" name="menuUpdate_Frequency">
+     <property name="title">
+      <string>Update Frequency</string>
+     </property>
+     <addaction name="actionUpdateVeryOften"/>
+     <addaction name="actionUpdateOften"/>
+     <addaction name="actionUpdateNormally"/>
+    </widget>
+    <addaction name="menuUpdate_Frequency"/>
+   </widget>
+   <addaction name="menu_MercuryiTC"/>
+   <addaction name="menu_File"/>
+   <addaction name="menu_Edit"/>
+   <addaction name="menuView"/>
+   <addaction name="menuWindow"/>
+  </widget>
+  <widget class="QStatusBar" name="statusbar">
+   <property name="styleSheet">
+    <string notr="true">QStatusBar{background:transparent};
+QStatusBar::item {border: 0px solid black };</string>
+   </property>
+  </widget>
+  <action name="exitAction">
+   <property name="text">
+    <string>&amp;Quit MercuryiTC monitor</string>
+   </property>
+   <property name="shortcut">
+    <string notr="true"/>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="sensorAction">
+   <property name="text">
+    <string>&amp;Temperature Sensors</string>
+   </property>
+  </action>
+  <action name="readingsAction">
+   <property name="text">
+    <string>Readings Overview...</string>
+   </property>
+  </action>
+  <action name="connectAction">
+   <property name="text">
+    <string>&amp;Connect Mercury</string>
+   </property>
+  </action>
+  <action name="disconnectAction">
+   <property name="text">
+    <string>&amp;Disconnect Mercury</string>
+   </property>
+  </action>
+  <action name="updateAddressAction">
+   <property name="text">
+    <string>&amp;Connection Settings...</string>
+   </property>
+  </action>
+  <action name="PIDAction">
+   <property name="text">
+    <string>&amp;PID...</string>
+   </property>
+  </action>
+  <action name="showLogAction">
+   <property name="text">
+    <string> Show Log Files...</string>
+   </property>
+  </action>
+  <action name="actionMinimize">
+   <property name="text">
+    <string>Minimize</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+M</string>
+   </property>
+  </action>
+  <action name="actionZoom">
+   <property name="text">
+    <string>Zoom</string>
+   </property>
+   <property name="shortcut">
+    <string>Meta+Ctrl+Z</string>
+   </property>
+  </action>
+  <action name="modulesAction">
+   <property name="text">
+    <string>Assign modules...</string>
+   </property>
+  </action>
+  <action name="actionUpdateVeryOften">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Very often (0.5 sec)</string>
+   </property>
+  </action>
+  <action name="actionUpdateOften">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Often (1 sec)</string>
+   </property>
+  </action>
+  <action name="actionUpdateNormally">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Normally (2 sec)</string>
+   </property>
+  </action>
+  <action name="actionUpdatePeriodVeryOften">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Very often (5 min)</string>
+   </property>
+  </action>
+  <action name="actionUpdatePeriodOften">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Often (10 min)</string>
+   </property>
+  </action>
+  <action name="actionUpdatePeriodNormally">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Normally (30 min)</string>
+   </property>
+  </action>
+  <action name="actionUpdatePeriodSlowly">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Slowly (60 min)</string>
+   </property>
+  </action>
+ </widget>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>actionMinimize</sender>
+   <signal>triggered()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>showMinimized()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>-1</x>
+     <y>-1</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>274</x>
+     <y>319</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>actionZoom</sender>
+   <signal>triggered()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>showMaximized()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>-1</x>
+     <y>-1</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>274</x>
+     <y>319</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>

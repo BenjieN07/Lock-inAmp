@@ -1,0 +1,35 @@
+VARIABLES SECTION
+
+STRING <File List> = '';
+STRING <Path> = '?';
+STRING <Path_Destination> = '?';
+STRING <Name> = '*.*';
+STRING <FileName> = '';
+NUMERIC <Count> = 0;
+NUMERIC <Index> = 0;
+FILE <$ResultFile 1> = REFL;
+FILE <$ResultFile 2> = SCRF;
+FILE <$ResultFile 3> = SCSM;
+
+PROGRAM SECTION
+
+UserDialog ('Load multiple files', STANDARD, EDIT:'<Path>', EDIT:'<Name>', EDIT:'<Path_Destination>', BLANK, BLANK, BLANK, BLANK, BLANK, BLANK, BLANK, BLANK, BLANK, BLANK, BLANK);
+<File List> = ScanPath ('<Path>\<Name>');
+<Count> = GetArrayCount (<File List>);
+StartLoop (<Count>, 0);
+<FileName> = '<File List>[<Index>]';
+<$ResultFile 1> = Load (0, {DAP='<Path>', DAF='<FileName>'});
+SaveAs ([<$ResultFile 1>:REFL], {DAP='<Path_Destination>', OEX='1', SAN='<FileName>.csv', COF=64, DPA=5, DPO=8, SEP=',', YON='0', ADP='1'});
+Unload ([<$ResultFile 1>:REFL], {});
+<$ResultFile 2> = Load (0, {DAP='<Path>', DAF='<FileName>'});
+SaveAs ([<$ResultFile 2>:SCRF], {DAP='<Path_Destination>', OEX='1', SAN='RSC_<FileName>.csv', COF=64, DPA=5, DPO=10, SEP=',', YON='0', ADP='1'});
+Unload ([<$ResultFile 2>:SCRF], {});
+<$ResultFile 3> = Load (0, {DAP='<Path>', DAF='<FileName>'});
+SaveAs ([<$ResultFile 3>:SCSM], {DAP='<Path_Destination>', OEX='1', SAN='SSC_<FileName>.csv', COF=64, DPA=5, DPO=10, SEP=',', YON='0', ADP='1'});
+Unload ([<$ResultFile 3>:SCSM], {});
+<Index> = <Index>+1;
+EndLoop (0);
+
+PARAMETER SECTION
+
+ 
