@@ -2109,6 +2109,16 @@ class ControlWidget(QFrame):
         self.camera_control_btn.setFixedHeight(50)
         self.camera_control_btn.clicked.connect(camera_widget.show)
         main_grid.addWidget(self.camera_control_btn, 2, 2, Qt.AlignCenter)
+
+        # Launch the UHFLI monitor in its separate Python 3.12 environment.
+        # Place this in the top control grid instead of the bottom command bar.
+        self.uhfli_btn = QPushButton('UHFLI Setting')
+        self.uhfli_btn.setEnabled(True)
+        self.uhfli_btn.setFixedWidth(200)
+        self.uhfli_btn.setFixedHeight(50)
+        self.uhfli_btn.clicked.connect(run_lockin_amp)
+        main_grid.addWidget(self.uhfli_btn, 1, 3, Qt.AlignCenter)
+
         main_vbox.addLayout(main_grid)
 
         # create list of commands
@@ -2184,21 +2194,12 @@ class ControlWidget(QFrame):
         stop_btn.clicked.connect(self.stop_commands)
         commands_hb.addWidget(stop_btn)
 
-        # Add a button to open the MFLI lock-in amplifier GUI.  This runs
-        # amp.py in a new process using the current Python interpreter.
-        # Button to launch the UHF lock-in monitor.  This runs
-        # ``uhfli.py`` in a separate process using the newer Python interpreter.
-        lockin_amp_btn = QPushButton("Run UHF Lock-in Monitor")
-        lockin_amp_btn.setEnabled(True)
-        lockin_amp_btn.clicked.connect(run_lockin_amp)
-        commands_hb.addWidget(lockin_amp_btn)
-
         # allow user to log the command list
         self.log_cb = QCheckBox("Log")
         commands_hb.addWidget(self.log_cb)
 
         # create list of buttons to disable when in the middle of running commands
-        self.buttons = [run_commands_btn, remove_last_btn, clear_all_btn, self.log_cb, lockin_amp_btn]
+        self.buttons = [run_commands_btn, remove_last_btn, clear_all_btn, self.log_cb, self.uhfli_btn]
 
         commands_hb.addStretch()
         main_vbox.addLayout(commands_hb)
