@@ -104,7 +104,6 @@ class LockinLiveGUI(QWidget):
         self.demod_rows: Dict[int, DemodRow] = {}
 
         # --- UI widgets ---
-        # Keep localhost because the uploaded version that sees both devices uses that.
         self.host_edit = QLineEdit("192.168.60.166")
         self.port_edit = QLineEdit("8004")
         self.connect_btn = QPushButton("Connect")
